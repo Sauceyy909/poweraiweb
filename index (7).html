@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PowerAi</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #1c1c1e;
+            color: #f5f5f7;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            position: relative;
+            transition: box-shadow 0.3s ease-in-out;
+        }
+        body.listening {
+            box-shadow: 0 0 30px 20px rgba(10, 132, 255, 0.7);
+        }
+        .container {
+            text-align: center;
+            background-color: #2c2c2e;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            width: 90%;
+            max-width: 600px;
+            transition: box-shadow 0.3s ease-in-out;
+        }
+        .container.listening {
+            box-shadow: 0 0 30px 20px rgba(10, 132, 255, 0.7);
+        }
+        h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+        .button {
+            background-color: #0a84ff;
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            font-size: 18px;
+            border-radius: 12px;
+            cursor: pointer;
+            margin: 15px 10px;
+            transition: background-color 0.3s ease;
+        }
+        .button:hover {
+            background-color: #007aff;
+        }
+        #consoleButton {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: #0a84ff;
+            border: none;
+            color: white;
+            padding: 10px;
+            font-size: 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        #consoleButton:hover {
+            background-color: #007aff;
+        }
+        #console {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 200px;
+            background-color: #333;
+            color: #fff;
+            padding: 10px;
+            box-sizing: border-box;
+            overflow-y: scroll;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="container">
+        <h1>PowerAi</h1>
+        <p id="status">Listening for the wake word "Power"...</p>
+        <button id="consoleButton" onclick="toggleConsole()">Show Console</button>
+    </div>
+    <div id="console"></div>
+    <script>
+        class Matrix {
+            constructor(rows, cols) {
+                this.rows = rows;
+                this.cols = cols;
+                this.data = Array.from({ length: rows }, () => Array(cols).fill(0));
+            }
+
+            static fromArray(arr) {
+                return new Matrix(arr.length, 1).map((_, i) => arr[i]);
+            }
+
+            static subtract(a, b) {
+                return new Matrix(a.rows, a.cols).map((_, i, j) => a.data[i][j] - b.data[i][j]);
+            }
+
+            static multiply(a, b) {
+                if (a.cols !== b.rows) {
+                    console.error('Columns of A must match rows of B.');
+                    return;
+                }
+                return new Matrix(a.rows, b.cols).map((_, i, j) => {
+                    let sum = 0;
+                    for (let k = 0; k < a.cols; k++) {
+                        sum += a.data[i][k] * b.data[k][j];
+                    }
+                    return sum;
+                });
+            }
+
+            static transpose(matrix) {
+                return new Matrix(matrix.cols, matrix.rows).map((_, i, j) => matrix.data[j][i]);
+            }
+
+            map(func) {
+                this.data = this.data.map((row, i) => row.map((val, j) => func(val, i, j)));
+                return this;
+            }
+
+            static map(matrix, func) {
+                return new Matrix(matrix.rows, matrix.cols).map((_, i, j) => func(matrix.data[i][j], i, j));
+            }
+
+            add(matrix) {
+                if (matrix instanceof Matrix) {
+                    return this.map((val, i, j) => val + matrix.data[i][j]);
+                } else {
+                    return this.map(val => val + matrix);
+                }
+            }
+
+            multiply(matrix) {
+                if (matrix instanceof Matrix) {
+                    return this.map((val, i, j) => val * matrix.data[i][j]);
+                } else {
+                    return this.map(val => val * matrix);
+                }
+            }
+
+            randomize() {
+                return this.map(() => Math.random() * 2 - 1);
+            }
+
+            toArray() {
+                let arr = [];
+                this.map(val => arr.push(val));
+                return arr;
+            }
+        }
+
+        class NeuralNetwork {
+            constructor(inputNodes, hiddenNodes, outputNodes) {
+                this.inputNodes = inputNodes;
+                this.hiddenNodes = hiddenNodes;
+                this.outputNodes = outputNodes;
+
+                this.weights_ih = new Matrix(this.hiddenNodes, this.inputNodes).randomize();
+                this.weights_ho = new Matrix(this.outputNodes, this.hiddenNodes).randomize();
+                this.bias_h = new Matrix(this.hiddenNodes, 1).randomize();
+                this.bias_o = new Matrix(this.outputNodes, 1).randomize();
+                this.learningRate = 0.1;
+            }
+
+            feedforward(inputArray) {
+                let inputs = Matrix.fromArray(inputArray);
+                let hidden = Matrix.multiply(this.weights_ih, inputs).add(this.bias_h).map(sigmoid);
+                let output = Matrix.multiply(this.weights_ho, hidden).add(this.bias_o).map(sigmoid);
+                return output.toArray();
+            }
+
+            train(inputArray, targetArray) {
+                let inputs = Matrix.fromArray(inputArray);
+                let targets = Matrix.fromArray(targetArray);
+
+                let hidden = Matrix.multiply(this.weights_ih, inputs).add(this.bias_h).map(sigmoid);
+                let outputs = Matrix.multiply(this.weights_ho, hidden).add(this.bias_o).map(sigmoid);
+
+                let outputErrors = Matrix.subtract(targets, outputs);
+                let hiddenErrors = Matrix.multiply(Matrix.transpose(this.weights_ho), outputErrors);
+
+                let gradients = Matrix.map(outputs, dsigmoid).multiply(outputErrors).multiply(this.learningRate);
+                this.weights_ho.add(Matrix.multiply(gradients, Matrix.transpose(hidden)));
+                this.bias_o.add(gradients);
+
+                let hiddenGradient = Matrix.map(hidden, dsigmoid).multiply(hiddenErrors).multiply(this.learningRate);
+                this.weights_ih.add(Matrix.multiply(hiddenGradient, Matrix.transpose(inputs)));
+                this.bias_h.add(hiddenGradient);
+            }
+        }
+
+        function sigmoid(x) {
+            return 1 / (1 + Math.exp(-x));
+        }
+
+        function dsigmoid(y) {
+            return y * (1 - y);
+        }
+
+        class ContextMemory {
+            constructor() {
+                this.memory = [];
+            }
+
+            addContext(input, response) {
+                this.memory.push({ input, response });
+                if (this.memory.length > 100) {
+                    this.memory.shift();
+                }
+            }
+
+            getContext() {
+                return this.memory.map(entry => `User: ${entry.input}, AI: ${entry.response}`).join('\n');
+            }
+        }
+
+        class EmotionalIntelligence {
+            constructor() {
+                this.emotions = {
+                    happy: { pitch: 1.5, rate: 1.2 },
+                    sad: { pitch: 0.8, rate: 0.9 },
+                    neutral: { pitch: 1.0, rate: 1.0 }
+                };
+                this.currentEmotion = 'neutral';
+            }
+
+            setEmotion(emotion) {
+                if (this.emotions[emotion]) {
+                    this.currentEmotion = emotion;
+                }
+            }
+
+            getEmotion() {
+                return this.currentEmotion;
+            }
+
+            adjustVoice(utterance) {
+                const emotionSettings = this.emotions[this.currentEmotion];
+                utterance.pitch = emotionSettings.pitch;
+                utterance.rate = emotionSettings.rate;
+            }
+        }
+
+        const statusElement = document.getElementById('status');
+        const consoleElement = document.getElementById('console');
+        const containerElement = document.getElementById('container');
+        const synth = window.speechSynthesis;
+        let recognition;
+        let isListening = false;
+        let wakeWordDetected = false;
+        let isRecognitionRunning = false;
+        let selectedVoice = null;
+
+        const contextMemory = new ContextMemory();
+        const emotionalIntelligence = new EmotionalIntelligence();
+
+        function loadVoices() {
+            const voices = synth.getVoices();
+            selectedVoice = voices.find(voice => voice.name.includes('Google UK English Female')) || voices.find(voice => voice.lang === 'en-GB' && voice.gender === 'female');
+            if (!selectedVoice) {
+                logToConsole('No suitable UK English female voice found. Using default voice.');
+                selectedVoice = voices[0];
+            }
+            logToConsole('Selected voice:', selectedVoice.name);
+        }
+
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = loadVoices;
+        }
+
+        try {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = false;
+                recognition.lang = 'en-US';
+
+                recognition.onstart = () => {
+                    logToConsole('Recognition started');
+                    document.body.classList.add('listening');
+                    containerElement.classList.add('listening');
+                    isRecognitionRunning = true;
+                    statusElement.textContent = "Listening for the wake word 'Power'...";
+                };
+
+                recognition.onresult = (event) => {
+                    const speechResult = event.results[event.results.length - 1][0].transcript.toLowerCase();
+                    logToConsole('Recognition result:', speechResult);
+
+                    if (speechResult.includes('power')) {
+                        wakeWordDetected = true;
+                        logToConsole('Wake word "Power" detected');
+                        handleWakeWord();
+                    } else if (wakeWordDetected) {
+                        statusElement.textContent = `You said: ${speechResult}`;
+                        contextMemory.addContext(speechResult, 'Thinking...');
+                        speak('Thinking...');
+                        handleSpeech(speechResult);
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    logToConsole('Recognition error:', event.error);
+                    statusElement.textContent = `Error occurred in recognition: ${event.error}`;
+                    if (event.error === 'aborted' || event.error === 'network') {
+                        startRecognition();
+                    }
+                };
+
+                recognition.onend = () => {
+                    logToConsole('Recognition ended');
+                    document.body.classList.remove('listening');
+                    containerElement.classList.remove('listening');
+                    isRecognitionRunning = false;
+                    statusElement.textContent = "Listening for the wake word 'Power'...";
+                    startRecognition();
+                };
+
+                startRecognition();
+            } else {
+                throw new Error('SpeechRecognition API not supported in this browser.');
+            }
+        } catch (error) {
+            logToConsole(error.message);
+            statusElement.textContent = error.message;
+        }
+
+        function startRecognition() {
+            if (!isRecognitionRunning) {
+                try {
+                    recognition.start();
+                } catch (error) {
+                    logToConsole('Error starting recognition:', error);
+                }
+            }
+        }
+
+        function handleWakeWord() {
+            speak('Yes, how can I help you?');
+            isListening = true;
+            containerElement.classList.add('listening');
+        }
+
+        function speak(text) {
+            logToConsole('Speaking text:', text);
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.voice = selectedVoice;
+            emotionalIntelligence.adjustVoice(utterance);
+            utterance.onend = () => {
+                logToConsole('SpeechSynthesisUtterance.onend');
+            };
+            utterance.onerror = (event) => {
+                logToConsole('SpeechSynthesisUtterance.onerror', event.error);
+            };
+            synth.speak(utterance);
+        }
+
+        function handleSpeech(speech) {
+            logToConsole('Handling speech:', speech);
+            if (speech.includes('search for') || speech.includes('find')) {
+                const query = speech.replace('power', '').trim();
+                if (speech.includes('on youtube')) {
+                    redirectToYouTube(query);
+                } else {
+                    redirectToGoogle(query);
+                }
+            } else {
+                fetchResponseFromAI(speech);
+            }
+            wakeWordDetected = false;
+            containerElement.classList.remove('listening');
+        }
+
+        function fetchResponseFromAI(prompt) {
+            logToConsole('Fetching response from the AI for:', prompt);
+            const inputNodes = 3;
+            const hiddenNodes = 3;
+            const outputNodes = 1;
+            const nn = new NeuralNetwork(inputNodes, hiddenNodes, outputNodes);
+
+            const inputArray = [prompt.length % 10, prompt.charCodeAt(0) % 10, prompt.split(' ').length % 10];
+            const outputArray = nn.feedforward(inputArray);
+
+            const responseText = `AI Response: ${outputArray}`;
+            contextMemory.addContext(prompt, responseText);
+            analyzeEmotion(responseText);
+            speak(responseText);
+        }
+
+        function redirectToGoogle(query) {
+            logToConsole('Redirecting to Google with query:', query);
+            const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+            window.open(url, '_blank');
+        }
+
+        function redirectToYouTube(query) {
+            logToConsole('Redirecting to YouTube with query:', query);
+            const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+            window.open(url, '_blank');
+        }
+
+        function analyzeEmotion(responseText) {
+            if (responseText.includes('happy') || responseText.includes('glad') || responseText.includes('joy')) {
+                emotionalIntelligence.setEmotion('happy');
+            } else if (responseText.includes('sad') || responseText.includes('sorry') || responseText.includes('unfortunate')) {
+                emotionalIntelligence.setEmotion('sad');
+            } else {
+                emotionalIntelligence.setEmotion('neutral');
+            }
+        }
+
+        function logToConsole(...messages) {
+            consoleElement.innerHTML += messages.join(' ') + '<br>';
+            consoleElement.scrollTop = consoleElement.scrollHeight;
+        }
+
+        function toggleConsole() {
+            const consoleButton = document.getElementById('consoleButton');
+            if (consoleElement.style.display === 'none' || consoleElement.style.display === '') {
+                consoleElement.style.display = 'block';
+                consoleButton.textContent = 'Hide Console';
+            } else {
+                consoleElement.style.display = 'none';
+                consoleButton.textContent = 'Show Console';
+            }
+        }
+
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                logToConsole('Microphone permission granted.');
+            })
+            .catch(error => {
+                logToConsole('Microphone permission denied:', error);
+                statusElement.textContent = 'Microphone permission denied. Please allow access to the microphone.';
+            });
+    </script>
+</body>
+</html>
